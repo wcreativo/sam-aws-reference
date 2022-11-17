@@ -1,0 +1,167 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+
+  Sample SAM Template for tutorial
+
+Globals:
+  Function:
+    Architectures: # Determines the type of computer processor that Lambda uses to run the function
+      # Lambda functions that use arm64 architecture (AWS Graviton2 processor) can achieve significantly
+      # better price and performance than the equivalent function running on x86_64 architecture.
+      # Consider using arm64 for compute-intensive applications such as high-performance computing, video encoding, and simulation workloads.
+      - arm64 # Valid values: One of x86_64 or arm64. Default: x86_64. arm64 is 64-bit ARM architecture, for the AWS Graviton2 processor. The arm64 architecture is available in most AWS Regions.
+    AssumeRolePolicyDocument: # Required: No. Adds an AssumeRolePolicyDocument for the default created Role for this function. If this property isn't specified, AWS SAM adds a default assume role for this function.
+      Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole' # AWS Security Token Service
+    AutoPublishAlias: live # Required: No. For example, if you set AutoPublishAlias to live, the LogicalId is: MyFunctionAliaslive.
+    CodeUri: modules/authorizer # Required: Conditional. The function code's Amazon S3 URI eg. s3://bucket-name/key-name, path to local folder, or FunctionCode object. This property only applies if the PackageType property is set to Zip, otherwise it is ignored.
+    DeadLetterQueue: # Configures an Amazon Simple Notification Service (Amazon SNS) topic or Amazon Simple Queue Service (Amazon SQS) queue where Lambda sends events that it can't process.
+      Type: SNS # Required: Yes. Valid values: SNS, SQS
+      TargetArn: arn:aws:sns:us-east-2:123456789012:my-topic # Required: Yes. The Amazon Resource Name (ARN) of an Amazon SQS queue or Amazon SNS topic.
+    DeploymentPreference: # The settings to enable gradual Lambda deployments.
+      Enabled: true # Whether this deployment preference is enabled
+      Type: Canary10Percent10Minutes # There are two categories of deployment types at the moment: Linear and Canary.
+      Alarms: # Required: No. A list of CloudWatch alarms that you want to be triggered by any errors raised by the deployment.
+        - Ref: AliasErrorMetricGreaterThanZeroAlarm
+        - Ref: LatestVersionErrorMetricGreaterThanZeroAlarm
+      Hooks: # Validation Lambda functions that are run before and after traffic shifting.
+        PreTraffic: # Lambda function that is run before traffic shifting.
+          Ref: PreTrafficLambdaFunction
+        PostTraffic: # Lambda function that is run after traffic shifting.
+          Ref: PostTrafficLambdaFunction
+    Description: # A description of the function.
+    Environment: # The configuration for the runtime environment.
+      Variables: # Environment variable key-value pairs
+        ENVIRONMENT: !Ref Environment
+        DB_HOST: !Ref DatabaseHost
+        DB_HOST_READ: !Ref DatabaseHostRead
+        DB_NAME: !Ref DatabaseName
+    EphemeralStorage: 512 # The size of the function’s /tmp directory in MB. The default value is 512, but can be any whole number between 512 and 10240 MB
+    EventInvokeConfig: # The object that describes event invoke configuration on a Lambda function.
+      MaximumEventAgeInSeconds: 60 # The maximum age of a request that Lambda sends to a function for processing.
+      MaximumRetryAttempts: 2 # The maximum number of times to retry before the function returns an error.
+      DestinationConfig: # A configuration object that specifies the destination of an event after Lambda processes it.
+        OnSuccess:
+          Type: SQS
+          Destination: arn:aws:sqs:us-west-2:012345678901:my-queue
+        OnFailure:
+          Type: Lambda
+          Destination: !GetAtt DestinationLambda.Arn
+    Handler: app.handler # Required: Conditional. The function within your code that is called to begin execution. This property is only required if the PackageType property is set to Zip.
+    KmsKeyArn: # The ARN of an AWS Key Management Service (AWS KMS) key that Lambda uses to encrypt and decrypt your function's environment variables.
+    Layers: # Required: No. The list of LayerVersion ARNs that this function should use. 
+      - arn:aws:lambda:us-west-2:111111111111:layer:myLayer:1
+    MemorySize: 256 # Required: No. The size of the memory in MB allocated per invocation of the function.
+    PermissionsBoundary: "arn:aws:iam::${AWS::AccountId}:policy/AddPermission" # The ARN of a permissions boundary to use for this function's execution role. This property works only if the role is generated for you.
+    ProvisionedConcurrencyConfig: # A provisioned concurrency configuration for a function's version.
+      ProvisionedConcurrentExecutions: 1
+    ReservedConcurrentExecutions: 100 # Required: No. The maximum number of concurrent executions that you want to reserve for the function. our functions' concurrency is the number of instances that serve requests at a given time.
+    Runtime: python3.9 # Required: Conditional. The identifier of the function's runtime. This property is only required if the PackageType property is set to Zip.
+    Tags: # Required: No. A map (string to string) that specifies the tags added to this function
+    Timeout: !Ref GlobalTimeout # Required: No. The maximum time in seconds that the function can run before it is stopped.
+    Tracing: Active # Required: No. The string that specifies the function's X-Ray tracing mode. 
+    VpcConfig: # The configuration that enables this function to access private resources within your virtual private cloud (VPC).
+      SecurityGroupIds: # Required: No. A list of VPC security groups IDs.
+        - !Ref SecurityGroup
+      SubnetIds: # Required: No. A list of VPC subnet IDs.
+        - !Ref SubnetA
+        - !Ref SubnetB
+
+
+  # An AWS::Serverless::Api resource need not be explicitly added to a AWS Serverless Application Definition template. 
+  # A resource of this type is implicitly created from the union of Api events defined on AWS::Serverless::Function resources defined 
+  # in the template that do not refer to an AWS::Serverless::Api resource.
+
+  Api:
+    AccessLogSetting: # Configures Access Log Setting for a stage.
+      DestinationArn: String # The Amazon Resource Name (ARN) of the CloudWatch Logs log group or Kinesis Data Firehose delivery stream to receive access logs.
+      Format: String # A single line format of the access logs of data, as specified by selected $context variables.
+    Auth: # Configure authorization to control access to your API Gateway API.
+      AddDefaultAuthorizerToCorsPreflight: false # If the DefaultAuthorizer and Cors properties are set, then setting AddDefaultAuthorizerToCorsPreflight will cause the default authorizer to be added to the Options property in the OpenAPI section.
+      ApiKeyRequired: Boolean # If set to true then an API key is required for all API events
+      Authorizers: # The authorizer used to control access to your API Gateway API. Default: None
+        LambdaAuthorizer:
+            FunctionArn: !GetAtt AuthorizerFunction.Arn
+      DefaultAuthorizer: LambdaAuthorizer
+      InvokeRole: String
+      ResourcePolicy: ResourcePolicyStatement
+      UsagePlan: ApiUsagePlan
+    BinaryMediaTypes:
+    CacheClusterEnabled:
+    CacheClusterSize:
+    CanarySetting:
+    Cors:
+      AllowOrigin: "'*'"
+      AllowMethods: "'*'"
+      AllowHeaders: "'*'"
+    DefinitionUri: # Amazon S3 Uri, local file path, or location object of the OpenAPI document defining the API. 
+    Domain:
+    EndpointConfiguration:
+    GatewayResponses:
+    MethodSettings:
+    MinimumCompressionSize:
+    Name: !Sub api-${AWS::StackName}-${Environment} # A name for the API Gateway RestApi resource
+    OpenApiVersion:
+    TracingEnabled:
+    Variables:
+
+  HttpApi:
+    Auth:
+    AccessLogSettings:
+    StageVariables:
+    Tags:
+
+  SimpleTable:
+    SSESpecification:
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Resources:
+  HelloWorldFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: hello_world/
+      Handler: app.lambda_handler
+      Runtime: python3.9
+      Architectures:
+        - x86_64
+      Events:
+        HelloWorld:
+          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Path: /hello
+            Method: get
+
+Outputs:
+  # ServerlessRestApi is an implicit API created out of Events key under Serverless::Function
+  # Find out more about other implicit resources you can reference within SAM
+  # https://github.com/awslabs/serverless-application-model/blob/master/docs/internals/generated_resources.rst#api
+  HelloWorldApi:
+    Description: "API Gateway endpoint URL for Prod stage for Hello World function"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello/"
+  HelloWorldFunction:
+    Description: "Hello World Lambda Function ARN"
+    Value: !GetAtt HelloWorldFunction.Arn
+  HelloWorldFunctionIamRole:
+    Description: "Implicit IAM Role created for Hello World function"
+    Value: !GetAtt HelloWorldFunctionRole.Arn
